@@ -8,6 +8,7 @@
 ## --------------< Set-up Workspace >-----------------
 rm(list=ls())
 
+dyn.load(paste0(system2('/usr/libexec/java_home', stdout = TRUE), '/jre/lib/server/libjvm.dylib'))
 library(tidyverse)
 library(readr)
 library(readxl)
@@ -15,9 +16,11 @@ library(ggplot2)
 library(purrr)
 library(reshape2)
 library(lubridate)
+library(civis)
+library(civis.deckR)
 
 
-setwd("~/Desktop/Gambia")
+setwd("~/Desktop/Gambia/GambiaSurveyQC")
 
 ## load helper functions
 source("helpers_Gambia.R")
