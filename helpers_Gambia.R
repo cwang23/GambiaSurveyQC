@@ -251,8 +251,36 @@ compareRemoveMetrics <- function(df, col_y, col_x, interviewer_id_col = "CODE_En
   row.names(out) <- seq(1:nrow(out))
   out <- out %>%
     separate(temp, c("interviewer_id", "data"), "[.]") %>%
-    select("interviewer_id", "data", "value") %>%
-    filter(!is.na(value))
+    select("interviewer_id", "data", "value")
+  
+  out_R2_all <- NA 
+  out_nulldeviance_all <- NA 
+  out_residualdeviance_all <- NA
+  out_cor_all <- NA
+  
+  if("logit" %in% return){
+    # if the y variable isn't binary, can't run logit model
+    if(!all(unique(df[[col_y]]) == c(0, 1))){
+      print("The y variable is not binary -- can't return logit model output.")
+    } else {
+      out_nulldeviance_all <- glm(df[[col_y]] ~ df[[col_x]], family = binomial(link = "logit"))$null.deviance
+      out_residualdeviance_all <- glm(df[[col_y]] ~ df[[col_x]], family = binomial(link = "logit"))$deviance
+    }
+  } 
+  if ("R2" %in% return) {
+    out_R2_all <- summary(lm(df[[col_y]] ~ df[[col_x]]))$r.squared
+  } 
+  if ("cor" %in% return) {
+    out_cor_all <- cor(df[[col_y]], df[[col_x]], use = "complete.obs")
+  }
+  
+  out <- out %>%
+    spread(data, value) %>%
+    mutate("diff_R2" = R2 - out_R2_all,
+           "diff_nulldeviance" = null_deviance - out_nulldeviance_all,
+           "diff_residualdeviance" = residual_deviance - out_residualdeviance_all,
+           "diff_cor" = cor -  out_cor_all)
+  
   return(out)
 }
 
