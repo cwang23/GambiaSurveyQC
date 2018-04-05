@@ -11,6 +11,7 @@ rm(list=ls())
 dyn.load(paste0(system2('/usr/libexec/java_home', stdout = TRUE), '/jre/lib/server/libjvm.dylib'))
 library(tidyverse)
 library(readr)
+library(mgcv)
 library(readxl)
 library(ggplot2)
 library(purrr)
@@ -145,7 +146,7 @@ timediff <- clean %>%
   group_by(CODE_Enq_CONF) %>%
   mutate("previous_interview_end" = lag(interview_end, 1)) %>% ungroup() %>%
   mutate("secs_since_prev_interview" = difftime(interview_start, previous_interview_end, units = "secs")) %>%
-  select("CODE_Enq_CONF", "previous_interview_end", "interview_start", "interview_end", "secs_since_prev_interview", "INTTIME") %>%
+  select("CODE_Enq_CONF", "previous_interview_end", "interview_start", "interview_end", "secs_since_prev_interview", "INTTIME", "Q89", want_cols) %>%
   arrange(CODE_Enq_CONF, interview_start)
 
 # grab interviewer IDs for interviewers who had next interview start in within a minute of previous interview
@@ -165,7 +166,7 @@ want_cols <- c(name_cols, age_cols, gender_cols)
 check2 <- timediff %>%
   filter(CODE_Enq_CONF %in% check[[1]]) %>%
   arrange(CODE_Enq_CONF, interview_start) %>%
-  select("CODE_Enq_CONF", "previous_interview_end", "interview_start", "interview_end", "secs_since_prev_interview", "INTTIME", want_cols)
+  select("CODE_Enq_CONF", "previous_interview_end", "interview_start", "interview_end", "secs_since_prev_interview", "INTTIME", "Q89", want_cols)
 
 time_check <- compareDistribs(clean, "INTTIME")
 
@@ -188,6 +189,9 @@ time_analysis_mean <- clean %>%
 
 
 # -------------< bivariate analysis >-------------
+
+table(clean$age, clean$Q78)
+table(clean$Q3, clean$Q78)
 
 covariates <- clean %>%
   mutate(barrow_approve = dplyr::case_when(Q24 == "Strongly approve" ~ 4,
@@ -249,16 +253,34 @@ tab <- bivariate_analysis %>%
 tab <- tab %>%
   mutate_at(.vars = names(.)[!grepl("_id", names(.))], .funs = abs) %>%
   mutate_at(.vars = names(.)[!grepl("_id", names(.))], .funs = round, 2) %>%
+  left_join(clean %>% group_by(CODE_Enq_CONF) %>% summarise(n_interviews = n()), by = c("interviewer_id" = "CODE_Enq_CONF")) %>%
+  select("interviewer_id", "n_interviews", "diff_R2_approvedirection", "diff_nulldeviance_retiredage", "questionsmean_sd_from_mean", "inttime_sd_from_mean") %>%
   civis_table() %>% 
-  color_table_palette(2) %>%
   color_table_palette(3) %>%
   color_table_palette(4) %>%
   color_table_palette(5) %>%
-  color_table_palette(6) %>%
-  color_table_palette(7) %>%
-  color_table_palette(8) %>%
-  color_table_palette(9)
+  color_table_palette(6) 
   
+
+
+tab2 <- bivariate_analysis %>% 
+  left_join(select(pctmatch_analysis, "interviewer_id", "avg_pctmatch_removeNAs"), by = "interviewer_id") %>%
+  left_join(select(mean_analysis, "interviewer_id" = CODE_Enq_CONF, "questionsmean_sd_from_mean" = mean_sd_from_mean), by = "interviewer_id") %>%
+  left_join(select(time_analysis_mean, "interviewer_id" = CODE_Enq_CONF, "inttime_sd_from_mean" = sd_from_mean), by = "interviewer_id") 
+tab2 <- tab2 %>%
+  mutate_at(.vars = names(.)[!grepl("_id", names(.))], .funs = abs) %>%
+  mutate_at(.vars = names(.)[!grepl("_id", names(.))], .funs = round, 2) %>%
+  mutate_at(.vars = names(.)[!grepl("_id", names(.))], .funs = dense_rank) %>%
+  mutate(overall = rowSums(.[,c("diff_R2_approvedirection", "diff_nulldeviance_retiredage", "questionsmean_sd_from_mean", "inttime_sd_from_mean")])) %>%
+  arrange(desc(overall))
+  #mutate(overall = rowSums(.[!grepl("_id", names(.))]))
+
+n_sizes <- clean %>%
+  group_by(CODE_Enq_CONF) %>%
+  summarise(n_interviews = n()) %>%
+  left_join(select(tab2, "interviewer_id", "overall"), by = c("CODE_Enq_CONF" = "interviewer_id")) %>%
+  arrange(desc(overall))
+
 
 
 #### DELIVERABLE ####
@@ -276,12 +298,16 @@ to_word(d, "gambia_200")
 # time analysis
 # bivariate analysis -- 
 
+summary(lm(covariates$barrow_vote ~ covariates$barrow_approve:factor(covariates$CODE_Enq_CONF)))
+summary(gam(barrow_vote ~ barrow_approve +s(CODE_Enq_CONF,bs="re"), data=covariates))
+summary(gam(barrow_vote ~ barrow_approve +s(CODE_Enq_CONF,by=barrow_approve, bs="re"),data=covariates))
 
 
+# Correlation
+# PCA
+# take the first component
 
-
-
-
+pca1 = prcomp(USArrests, scale. = TRUE)
 
 
 

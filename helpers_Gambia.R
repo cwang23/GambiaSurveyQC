@@ -285,6 +285,97 @@ compareRemoveMetrics <- function(df, col_y, col_x, interviewer_id_col = "CODE_En
 }
 
 
+## --------------< Plot Gambia Map Geospatial >-----------------
+
+# plotting Gambia map with interview locations, by interview day
+makeMap <- function(id, df, mapbackground){
+  subset <- df[df["interviewer_id"] == id,]
+  
+  n_sizes <- subset %>%
+    group_by(interviewer_id, interview_day) %>%
+    summarise(n_interviews = n())
+  
+  map <- ggmap(mapbackground) +
+    geom_point(data = subset, 
+               aes(x = lon, y = lat, fill = interviewer_id, alpha = 0.8), 
+               size = 3, shape = 21) +
+    geom_text(data = n_sizes,
+              aes(x = -17, y = 12.8, label = paste0("# Interviews: ", n_interviews)), 
+              color = "white", size = 4, fontface = "bold", hjust = 0, vjust = 0) +
+    scale_y_continuous(limits = c(12.75, 14.25)) +
+    guides(fill = FALSE, alpha = FALSE, size = FALSE) +
+    labs(title = paste0("Interviewer ID: ", id)) +
+    theme(axis.ticks = element_blank(),
+          axis.text = element_blank(),
+          axis.title = element_blank()) +
+    facet_wrap(~interview_day)
+  
+  return(map)
+}
+
+
+## --------------< Calculating Distance >-----------------
+
+calcGeoDist <- function(df, point1, point2, latcol = "lat", loncol = "lon"){
+  
+  a <- c(df[[loncol]][df["rowid"] == point1], df[[latcol]][df["rowid"] == point1])
+  b <- c(df[[loncol]][df["rowid"] == point2], df[[latcol]][df["rowid"] == point2])
+  
+  distance <- distm(a, b, fun = distVincentyEllipsoid)[1]
+  return(distance)
+}
+
+
+calcGeoDistOnetoAll <- function(df, point1, latcol = "lat", loncol = "lon"){
+  point2 <- point1 + 1
+  distance_onetoall <- map(.x = point2:nrow(df),
+                           .f = calcGeoDist,
+                           df = df,
+                           point1 = point1)
+  return(distance_onetoall)
+}
+
+calcGeoDistOneGroupConsecutive <- function(df, group, groupcol, latcol = "lat", loncol = "lon"){
+  subset <- df[df[groupcol] == group,] %>%
+    arrange(interview_start) %>%
+    mutate(rowid = 1:nrow(.))    # create a column to keep track of what row you're on within the subset
+  
+  # if hit an interviewer with only one interviewer in the dataset
+  if(nrow(subset) <= 1){
+    print("This interviewer only has one interview in the dataset. Cannot calculate distance between interviews.")
+    out <- subset %>%
+      mutate("dist_from_prev_interview" = NA,
+             "id" = NA) %>%
+      select(dist_from_prev_interview, id, latcol, loncol, superid)
+    return(out)
+  }
+  
+  distances <- map2(.x = 1:(nrow(subset) - 1),
+                    .y = 2:(nrow(subset)),
+                    .f = calcGeoDist,
+                    df = subset)
+  
+  # add one to each row ID number so when match back to df, each value will be the distance from the previous interview
+  matchnames <- subset$rowid + 1
+  matchnames <- matchnames[1:(length(matchnames) - 1)]  # take off the last value, because output distances are one shorter than original df
+  matchnames <- paste0(group, "_", matchnames)          # add group identifier
+  
+  names(distances) <- matchnames
+  
+  out <- data.frame("dist_from_prev_interview" = unlist(distances))
+  out$id <- row.names(out)
+  row.names(out) <- 1:nrow(out)
+  
+  out <- out %>%
+    left_join(subset %>%
+                mutate(id = paste0(group, "_", rowid)) %>%
+                select(id, latcol, loncol, superid), by = "id")
+  
+  return(out)
+}
+
+
+
 ## --------------< Maybe Garbage >-----------------
 
 
