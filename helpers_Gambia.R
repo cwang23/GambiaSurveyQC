@@ -200,7 +200,7 @@ compareDistribs <- function(df, col, interviewer_id_col = "CODE_Enq_CONF"){
   n_interviewers <- length(interviewers)
   
   out <- map(.x = interviewers[1:n_interviewers], .f = compareDistribsOneInterviewer,
-             df = clean, col = col)
+             df = df, col = col)
   names(out) <- interviewers
   return(out)
 }

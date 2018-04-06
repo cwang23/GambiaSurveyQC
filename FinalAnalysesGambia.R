@@ -74,7 +74,8 @@ all_clean <- survey_interviewer_clean %>%
   group_by(checkdupes) %>%
   mutate(geodupe = ifelse(n() > 1, 1, 0)) %>% ungroup()  # duplicates from joining on geospatial data
 
-
+all_geospatial_clean_nodupes <- all_clean %>%
+  filter(geodupe == 0 & !is.na(lat))
 
 
 #############  ASSESS INTERVIEW QUALITY  ####################
@@ -136,7 +137,7 @@ want_cols <- c(name_cols, age_cols, gender_cols)
 
 # calculate the time between interviews per interviewer per day
 timediff <- survey_interviewer_clean %>%
-  arrange(sort(clean$interview_start)) %>% 
+  arrange(sort(survey_interviewer_clean$interview_start)) %>% 
   group_by(interviewer_id, interview_day) %>%
   mutate("previous_interview_end" = lag(interview_end, 1)) %>% ungroup() %>%
   mutate("secs_since_prev_interview" = difftime(interview_start, previous_interview_end, units = "secs")) %>%
@@ -158,21 +159,24 @@ check2 <- timediff %>%
 
 
 # check difference in distribution of interview times across interviewers
-time_check <- compareDistribs(survey_interviewer_clean, "INTTIME")
+time_check <- compareDistribs(survey_interviewer_clean, "interview_length")
 
 # turn output into data frame with column indicating whether t-test is statistically significant or not
 temp <- unlist(time_check)
 temp <- temp[grepl("p_val", names(temp))]
 temp <- data.frame("p_val" = unlist(temp))
 temp$interviewer_id <- row.names(temp)
-time_analysis_ttest <- temp %>% 
+time_ttest_analysis <- temp %>% 
   separate(interviewer_id, c("interviewer_id", "remove"), "[.]") %>%
   select(interviewer_id, p_val) %>%
-  mutate("signif" = ifelse(p_val <= 0.05, 1, 0))
-
+  mutate("signif" = ifelse(p_val <= 0.05, 1, 0)) %>%
+  left_join(survey_interviewer_clean %>% 
+              group_by(interviewer_id) %>%
+              summarise(n_interviews = n()) %>% ungroup())
+ 
 # also calculate average interview length for each interviewer
 # then calculate the number of standard deviations away they are from the average, average interview time
-time_analysis_mean <- survey_interviewer_clean %>%
+time_mean_analysis <- survey_interviewer_clean %>%
   group_by(interviewer_id) %>%
   summarise("interviewer_mean_inttime" = mean(interview_length, na.rm = TRUE)) %>% ungroup() %>%
   mutate("mean_mean_inttime" = mean(interviewer_mean_inttime, na.rm = TRUE),
@@ -259,5 +263,32 @@ approve_direction1 <- summary(gam(barrow_approve ~ barrow_direction_agree +s(int
 approve_direction2 <- summary(gam(barrow_approve ~ barrow_direction_agree +s(interviewer_id, by = barrow_direction_agree, bs = "re"), data = covariates))
 
 
-
 ### DIDN'T ADD GAM MODELS FOR AGE/STUDENT/RETIRED BECAUSE IT'S TOO SPARSE ACROSS INTERVIEWERS (e.g. some interview mainly older people who are not students)
+
+
+
+## --------------< 5. Distance Analysis >-----------------
+# calculate distance between consecutive interviews for each interviewer per day
+distance_df <- data.frame("dist_from_prev_interview" = NA, "id" = NA, "lat" = NA, "lon" = NA, "superid" = NA)  # initialize empty df
+# loop through each possible day, calculate distance between each interview for each interviewer in that day
+for(date in unique(all_geospatial_clean_nodupes$interview_day)){
+  subset_date <- all_geospatial_clean_nodupes[all_geospatial_clean_nodupes$interview_day == date,]
+
+  temp <- map_df(.x = unique(subset_date$interviewer_id)[1:length(unique(subset_date$interviewer_id))],
+                 .f = calcGeoDistOneGroupConsecutive,
+                 groupcol = "interviewer_id",
+                 df = subset_date)
+  
+  distance_df <- bind_rows(distance_df, temp)
+}
+
+# clean up the df to include more information about interview start time, end time, and length of interview
+distance_analysis <- distance_df %>%
+  full_join(all_geospatial_clean_nodupes) %>%
+  select(superid, interviewer_id, interview_day, lat, lon, dist_from_prev_interview, interview_length, interview_start, interview_end) %>%
+  filter(!is.na(superid)) %>%
+  left_join(timediff, by = c("interviewer_id", "interview_start", "interview_end", "interview_length")) %>%
+  arrange(interviewer_id, interview_start) 
+
+
+
