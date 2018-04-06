@@ -182,6 +182,7 @@ time_analysis_mean <- survey_interviewer_clean %>%
 
 # -------------< 4. Bivariate Analysis >-------------
 
+# recode covariates of interest that are expected to have a relationship
 covariates <- survey_interviewer_clean %>%
   mutate(barrow_approve = dplyr::case_when(Q24 == "Strongly approve" ~ 4,
                                            Q24 == "Somewhat approve" ~ 3,
@@ -213,26 +214,50 @@ covariates <- survey_interviewer_clean %>%
                                     TRUE ~ 0),
          student = dplyr::case_when(Q78 == "Student" ~ 1,
                                     TRUE ~ 0),
-         age = as.numeric(age))
+         age = as.numeric(age),
+         interviewer_id = as.factor(interviewer_id))
 
 
+# specify the columns we want to grab, based off whether we use a logit or linear regression model
 logit_cor <- c("interviewer_id", "diff_cor", "diff_nulldeviance")
 R2_cor <- c("interviewer_id", "diff_cor", "diff_R2")
 
+# logit model: vote for barrow ~ approve of barrow
 vote_approve <- compareRemoveMetrics(covariates, col_y = "barrow_vote", col_x = "barrow_approve", return = c("logit", "cor")) %>% select(logit_cor)
+# logit model: vote for barrow ~ continue in direction barrow is taking country
 vote_direction <- compareRemoveMetrics(covariates, col_y = "barrow_vote", col_x = "barrow_direction_agree", return = c("logit", "cor")) %>% select(logit_cor)
+# linear regression model: approve of barrow ~ continue in direction barrow is taking country
 approve_direction <- compareRemoveMetrics(covariates, col_y = "barrow_approve", col_x = "barrow_direction_agree", return = c("R2", "cor")) %>% select(R2_cor)
 
+# logit model: student? ~ age
 student_age <- compareRemoveMetrics(covariates, col_y = "student", col_x = "age", return = c("logit", "cor")) %>% select(logit_cor)
+# logit model: retired? ~ age
 retired_age <- compareRemoveMetrics(covariates, col_y = "retired", col_x = "age", return = c("logit", "cor")) %>% select(logit_cor)
 
+
+# join together the results of each bivariate analysis
 bivariate_analysis <- select(vote_approve, "interviewer_id", "diff_nulldeviance_voteapprove" = diff_nulldeviance) %>%
   left_join(select(vote_direction, "interviewer_id", "diff_nulldeviance_votedirection" = diff_nulldeviance), by = "interviewer_id") %>%
   left_join(select(approve_direction, "interviewer_id", "diff_R2_approvedirection" = diff_R2), by = "interviewer_id") %>%
   left_join(select(student_age, "interviewer_id", "diff_nulldeviance_studentage" = diff_nulldeviance), by = "interviewer_id") %>%
   left_join(select(retired_age, "interviewer_id", "diff_nulldeviance_retiredage" = diff_nulldeviance), by = "interviewer_id")
 bivariate_analysis <- bivariate_analysis %>%
-  mutate_at(.vars = grep("diff", names(.), value = TRUE), .funs = abs)
+  mutate_at(.vars = grep("diff", names(.), value = TRUE), .funs = abs)  # change all the differences to absolute values
+
+
+## ***NOTE: these are sensitive to N sizes***
+# check for interviewer effects -- vote for barrow ~ approve of barrow
+vote_approve1 <- summary(gam(barrow_vote ~ barrow_approve +s(interviewer_id, bs = "re"), data = covariates))
+vote_approve2 <- summary(gam(barrow_vote ~ barrow_approve +s(interviewer_id, by = barrow_approve, bs = "re"), data = covariates))
+
+# check for interviewer effects -- vote for barrow ~ continue in direction barrow is taking country
+vote_direction1 <- summary(gam(barrow_vote ~ barrow_direction_agree +s(interviewer_id, bs = "re"), data = covariates))
+vote_direction2 <- summary(gam(barrow_vote ~ barrow_direction_agree +s(interviewer_id, by = barrow_direction_agree, bs = "re"), data = covariates))
+
+# check for interviewer effects -- approve of barrow ~ continue in direction barrow is taking country
+approve_direction1 <- summary(gam(barrow_approve ~ barrow_direction_agree +s(interviewer_id, bs = "re"), data = covariates))
+approve_direction2 <- summary(gam(barrow_approve ~ barrow_direction_agree +s(interviewer_id, by = barrow_direction_agree, bs = "re"), data = covariates))
 
 
 
+### DIDN'T ADD GAM MODELS FOR AGE/STUDENT/RETIRED BECAUSE IT'S TOO SPARSE ACROSS INTERVIEWERS (e.g. some interview mainly older people who are not students)
