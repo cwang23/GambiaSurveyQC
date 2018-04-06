@@ -140,6 +140,14 @@ col_responses <- map(.x = 1:nrow(clean), .f = rowListEmpty, df = clean, columns 
 
 
 # -------------< Time Analysis >--------------
+# grab all the interviews conducted by interviewers under suspicion (grabbed in "check")
+# eyeball interview times and demographic column info about the respondents to check for weirdness
+name_cols <- grep("NAME_", names(clean), value = TRUE)
+age_cols <- grep("AGE_", names(clean), value = TRUE)
+gender_cols <- grep("GENDER_", names(clean), value = TRUE)
+
+want_cols <- c(name_cols, age_cols, gender_cols)
+
 
 timediff <- clean %>%
   arrange(sort(clean$interview_start)) %>% 
@@ -155,13 +163,6 @@ check <- timediff %>%
   select(CODE_Enq_CONF) %>%
   distinct()
   
-# grab all the interviews conducted by interviewers under suspicion (grabbed in "check")
-# eyeball interview times and demographic column info about the respondents to check for weirdness
-name_cols <- grep("NAME_", names(clean), value = TRUE)
-age_cols <- grep("AGE_", names(clean), value = TRUE)
-gender_cols <- grep("GENDER_", names(clean), value = TRUE)
-
-want_cols <- c(name_cols, age_cols, gender_cols)
 
 check2 <- timediff %>%
   filter(CODE_Enq_CONF %in% check[[1]]) %>%

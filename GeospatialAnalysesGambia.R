@@ -29,14 +29,12 @@ source("helpers_Gambia.R")
 
 
 ## --------------< Read In Data >-----------------
-
 geospatial <- read_xlsx("GPSbatch1.xlsx")
 batchone <- read_xlsx("gambia_batch1.xlsx", col_types = "text")
 
 
 
 ## --------------< Munge Data >-----------------
-
 batchone_clean <- batchone %>%
   mutate(interviewer_id = CODE_Enq_CONF,
          interview_day = ymd(substr(STIME, start = 1, stop = 8)),
@@ -75,7 +73,7 @@ geo_clean <- geospatial %>%
 distance_df <- data.frame("dist_from_prev_interview" = NA, "id" = NA, "lat" = NA, "lon" = NA, "superid" = NA)
 for(date in unique(geo_clean$interview_day)){
   subset_date <- geo_clean[geo_clean$interview_day == date,]
-  print(subset_date)
+  #print(subset_date)
   
   temp <- map_df(.x = unique(subset_date$interviewer_id)[1:length(unique(subset_date$interviewer_id))],
                  .f = calcGeoDistOneGroupConsecutive,
@@ -86,10 +84,19 @@ for(date in unique(geo_clean$interview_day)){
 }
 
 
+## --------------< Distance Analysis >-----------------
+distance_df <- distance_df %>%
+  full_join(geo_clean) %>%
+  select(superid, interviewer_id, interview_day, lat, lon, dist_from_prev_interview, INTTIME, interview_start, interview_end) %>%
+  filter(!is.na(superid)) %>%
+  left_join(timediff, by = c("interviewer_id" = "CODE_Enq_CONF", "interview_start", "interview_end", "INTTIME")) %>%
+  arrange(interviewer_id, interview_start) 
+
+
 ## --------------< Make Map >-----------------
 # getting the map
 background <- get_map(location = c(lon = mean(geo_clean$lon) + 0.5, lat = mean(geo_clean$lat)), 
-                         zoom = 8, maptype = "hybrid", scale = 2, color = "bw")
+                      zoom = 8, maptype = "hybrid", scale = 2, color = "bw")
 
 # create map for each interviewer ID
 maps <- map(.x = unique(geo_clean$interviewer_id)[1:length(unique(geo_clean$interviewer_id))],
