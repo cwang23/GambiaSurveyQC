@@ -89,6 +89,7 @@ all_geospatial_clean_nodupes <- all_clean %>%
   filter(geodupe == 0 & !is.na(lat))
 
 
+
 #############  ASSESS INTERVIEW QUALITY -- EASY TESTS  ####################
 
 ## -------------< 1. Calculate Percent Matches >----------------
@@ -410,6 +411,10 @@ y <- prcomp(x)$rotation %>% data.frame() %>% mutate(var = row.names(.))
 y2 <- prcomp(bivariate_analysis %>% select(n, sd_from_mean_approve_direction, sd_from_mean_vote_approve, sd_from_mean_vote_direction))$rotation %>% data.frame() %>% mutate(var = row.names(.))
 ggplot(y2) + geom_point(aes(x = var, y = PC1, color = var), size = 4)
 
+diff_responses <- bivariate_analysis %>%
+  filter(sd_from_mean_approve_direction >= 1.6)
+
+
 ## --------------< 7. Distance Analysis >-----------------
 # Q86 -- rural/urban interview location
 
@@ -523,4 +528,38 @@ model_df <- model_df %>%
 
 
 
+#### TABLE FOR DELIVERABLE ####
+n_interviews_surveyresponses <- survey_interviewer_clean %>%
+  group_by(interviewer_id) %>%
+  summarise(n_interviews = n()) %>% ungroup()
 
+n_interviews_geospatial <- geospatial_clean %>%
+  group_by(interviewer_id) %>%
+  summarise(n_interviews = n()) %>% ungroup()
+
+n_interviews <- n_interviews_surveyresponses %>%
+  rename("# Interviews (survey response data)" = n_interviews) %>%
+  left_join(n_interviews_geospatial) %>%
+  mutate(n_interviews = ifelse(is.na(n_interviews), 0, n_interviews)) %>%
+  rename("# Interviews (geospatial data)" = n_interviews) %>%
+  mutate("Interviewer IDs Not Present in Interviewer Table" = ifelse(interviewer_id %in% bad_ids, "X", "--"), 
+         "No Geospatial Coordinate Change" = ifelse(interviewer_id %in% nochange$interviewer_id, "X", "--"),
+         "Speedy Interviews" = ifelse(interviewer_id %in% interviewers_speedy$interviewer_id, "X", "--"),
+         "Different Responses" = ifelse(interviewer_id %in% diff_responses$interviewer_id, "X", "--"),
+         "Reasonable Likelihood of Survey Falsification" = case_when(interviewer_id %in% nochange$interviewer_id ~ "X",
+                                                               interviewer_id %in% time_mean_analysis$interviewer_id[time_mean_analysis$sd_from_mean <= -1.25] ~ "X",
+                                                               interviewer_id %in% interviewers_speedy$interviewer_id & interviewer_id %in% diff_responses$interviewer_id ~ "X",
+                                                               TRUE ~ as.character("--")))
+
+
+## --------------< Deliverable Code >-----------------
+finaltable <- n_interviews %>%
+  civis_table()
+
+d <- deliverable("The Gambia Survey Analysis") %u%
+  unit(title = "Interviewer Metrics",
+       object1 = finaltable)
+
+to_word(d, "gambia_700")
+
+  
