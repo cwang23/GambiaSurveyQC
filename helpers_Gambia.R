@@ -316,6 +316,29 @@ makeMap <- function(id, df, mapbackground){
 
 ## --------------< Calculating Distance >-----------------
 
+
+calcGeoDistCentroid <- function(df, centroid_lat, centroid_lon, latcol = "lat", loncol = "lon"){
+  
+  distance_onetocentroid <- map(.x = 1:nrow(df),
+                                .f = calcGeoDistPoint,
+                                df = df,
+                                point1_lat = centroid_lat,
+                                point1_lon = centroid_lon)
+  
+  return(distance_onetocentroid)
+}
+
+
+calcGeoDistPoint <- function(df, point1_lat, point1_lon, point2, latcol = "lat", loncol = "lon"){
+  
+  a <- c(point1_lon, point1_lat)
+  b <- c(df[[loncol]][point2], df[[latcol]][point2])
+  
+  distance <- distm(a, b, fun = distVincentyEllipsoid)[1]
+  return(distance)
+}
+
+
 calcGeoDist <- function(df, point1, point2, latcol = "lat", loncol = "lon"){
   
   a <- c(df[[loncol]][df["rowid"] == point1], df[[latcol]][df["rowid"] == point1])
@@ -334,6 +357,8 @@ calcGeoDistOnetoAll <- function(df, point1, latcol = "lat", loncol = "lon"){
                            point1 = point1)
   return(distance_onetoall)
 }
+
+
 
 calcGeoDistOneGroupConsecutive <- function(df, group, groupcol, latcol = "lat", loncol = "lon"){
   subset <- df[df[groupcol] == group,] %>%
