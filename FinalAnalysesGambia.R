@@ -39,6 +39,14 @@ interviewer[nrow(interviewer), "ID"] <- "220012450_2"  # change duplicate ID to 
 #survey <- read_xlsx("gambia_batch1.xlsx", col_types = "text")  # first 237 responses
 survey <- read_xlsx("gambia_batch2.xlsx", col_types = "text")  # second batch (includes responses from first batch -- 707 responses)
 
+# recode surveys with wrong Interview IDs
+survey <- survey %>%
+  mutate(CODE_Enq_CONF = dplyr::case_when(CODE_Enq_CONF == "220012787" ~ "220018727",
+                                          CODE_Enq_CONF == "221015265" ~ "220012878",
+                                          CODE_Enq_CONF == "22013701" ~ "220013701",
+                                          CODE_Enq_CONF == "2200148051" ~ "220012878",
+                                          TRUE ~ as.character(CODE_Enq_CONF)))
+
 
 ## geospatial data
 #geospatial <- read_xlsx("GPSbatch1.xlsx")  # first batch
@@ -137,6 +145,22 @@ interviewers_speedy <- length_of_interview_analysis %>%
   
 
 ## --------------< 3. Distance Analysis >-----------------
+# grabbing demos columns that seem to be the demographic info for survey respondents?
+name_cols <- grep("NAME_", names(survey_interviewer_clean), value = TRUE)
+age_cols <- grep("AGE_", names(survey_interviewer_clean), value = TRUE)
+gender_cols <- grep("GENDER_", names(survey_interviewer_clean), value = TRUE)
+
+want_cols <- c(name_cols, age_cols, gender_cols)
+
+# calculate the time between interviews per interviewer per day
+timediff <- survey_interviewer_clean %>%
+  arrange(sort(survey_interviewer_clean$interview_start)) %>% 
+  group_by(interviewer_id, interview_day) %>%
+  mutate("previous_interview_end" = lag(interview_end, 1)) %>% ungroup() %>%
+  mutate("secs_since_prev_interview" = difftime(interview_start, previous_interview_end, units = "secs")) %>%
+  select("interviewer_id", "previous_interview_end", "interview_start", "interview_end", "secs_since_prev_interview", "interview_length", "Q89", want_cols) %>%
+  arrange(interviewer_id, interview_start)
+
 # Q86 -- rural/urban interview location
 
 # calculate distance between consecutive interviews for each interviewer per day
@@ -205,22 +229,6 @@ mean_analysis <- survey_interviewer_clean %>%
 
 
 # -------------< 5. Time Analysis -- Time Between Surveys and Length of Interview >--------------
-# grabbing demos columns that seem to be the demographic info for survey respondents?
-name_cols <- grep("NAME_", names(survey_interviewer_clean), value = TRUE)
-age_cols <- grep("AGE_", names(survey_interviewer_clean), value = TRUE)
-gender_cols <- grep("GENDER_", names(survey_interviewer_clean), value = TRUE)
-
-want_cols <- c(name_cols, age_cols, gender_cols)
-
-# calculate the time between interviews per interviewer per day
-timediff <- survey_interviewer_clean %>%
-  arrange(sort(survey_interviewer_clean$interview_start)) %>% 
-  group_by(interviewer_id, interview_day) %>%
-  mutate("previous_interview_end" = lag(interview_end, 1)) %>% ungroup() %>%
-  mutate("secs_since_prev_interview" = difftime(interview_start, previous_interview_end, units = "secs")) %>%
-  select("interviewer_id", "previous_interview_end", "interview_start", "interview_end", "secs_since_prev_interview", "interview_length", "Q89", want_cols) %>%
-  arrange(interviewer_id, interview_start)
-
 # grab interviewer IDs for interviewers who had next interview start in within a minute of previous interview
 check <- timediff %>%
   filter(secs_since_prev_interview < 0) %>%
@@ -232,7 +240,14 @@ check <- timediff %>%
 check2 <- timediff %>%
   filter(interviewer_id %in% check[[1]]) %>%
   arrange(interviewer_id, interview_start) %>%
-  select("interviewer_id", "previous_interview_end", "interview_start", "interview_end", "secs_since_prev_interview", "interview_length", "Q89", want_cols)
+  select("interviewer_id", "previous_interview_end", "interview_start", "interview_end", "secs_since_prev_interview", "interview_length", "Q89", want_cols) %>%
+  View(.)
+
+#### NOTES:
+## Interviewer 220011442 has 2 interviews that overlap with one another
+## Interview 220011442 has an interview that takes place within one miinute of the previous interview in a different geographic district
+
+timediff_suspicious <- c("220011442")
 
 
 # check difference in distribution of interview times across interviewers
@@ -412,7 +427,7 @@ y2 <- prcomp(bivariate_analysis %>% select(n, sd_from_mean_approve_direction, sd
 ggplot(y2) + geom_point(aes(x = var, y = PC1, color = var), size = 4)
 
 diff_responses <- bivariate_analysis %>%
-  filter(sd_from_mean_approve_direction >= 1.6)
+  filter(sd_from_mean_approve_direction >= 2 | sd_from_mean_vote_direction >= 2 | sd_from_mean_vote_approve >= 2)
 
 
 ## --------------< 7. Distance Analysis >-----------------
@@ -432,6 +447,7 @@ for(date in unique(all_geospatial_clean_nodupes$interview_day)){
   distance_df <- bind_rows(distance_df, temp)
 }
 
+
 # clean up the df to include more information about interview start time, end time, and length of interview
 distance_analysis <- distance_df %>%
   full_join(all_geospatial_clean_nodupes) %>%
@@ -443,7 +459,6 @@ distance_analysis <- distance_df %>%
 # ggplot(distance_analysis) +
 #   geom_density(aes(x = dist_from_prev_interview), alpha = 0.5) +
 #   facet_wrap(~interviewer_id, scales = "free")
-
 
 ## interviewers with no change in distance
 nochange <- distance_analysis %>%
@@ -542,14 +557,17 @@ n_interviews <- n_interviews_surveyresponses %>%
   left_join(n_interviews_geospatial) %>%
   mutate(n_interviews = ifelse(is.na(n_interviews), 0, n_interviews)) %>%
   rename("# Interviews (geospatial data)" = n_interviews) %>%
-  mutate("Interviewer IDs Not Present in Interviewer Table" = ifelse(interviewer_id %in% bad_ids, "X", "--"), 
+  mutate(#"Interviewer IDs Not Present in Interviewer Table" = ifelse(interviewer_id %in% bad_ids, "X", "--"), 
          "No Geospatial Coordinate Change" = ifelse(interviewer_id %in% nochange$interviewer_id, "X", "--"),
+         "Time Between Interviews Suspicious" = ifelse(interviewer_id %in% timediff_suspicious, "X", "--"),
          "Speedy Interviews" = ifelse(interviewer_id %in% interviewers_speedy$interviewer_id, "X", "--"),
          "Different Responses" = ifelse(interviewer_id %in% diff_responses$interviewer_id, "X", "--"),
          "Reasonable Likelihood of Survey Falsification" = case_when(interviewer_id %in% nochange$interviewer_id ~ "X",
                                                                interviewer_id %in% time_mean_analysis$interviewer_id[time_mean_analysis$sd_from_mean <= -1.25] ~ "X",
                                                                interviewer_id %in% interviewers_speedy$interviewer_id & interviewer_id %in% diff_responses$interviewer_id ~ "X",
-                                                               TRUE ~ as.character("--")))
+                                                               TRUE ~ as.character("--"))) %>%
+  mutate("Reasonable Likelihood of Survey Falsification" = ifelse((`No Geospatial Coordinate Change` == "X") + (`Time Between Interviews Suspicious` == "X") +
+           (`Speedy Interviews` == "X") + (`Different Responses` == "X") > 1, "X", `Reasonable Likelihood of Survey Falsification`))
 
 
 ## --------------< Deliverable Code >-----------------
